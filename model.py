@@ -102,6 +102,13 @@ class cyclegan(object):
              self.db_loss_sum, self.db_loss_real_sum, self.db_loss_fake_sum,
              self.d_loss_sum]
         )
+        self.real_A_summary = tf.summary.image("realA", (self.real_A+1.)/2.)
+        self.fake_A_summary = tf.summary.image("fakeA", (self.fake_A+1.)/2.)
+        self.real_B_summary = tf.summary.image("realB", (self.real_B+1.)/2.)
+        self.fake_B_summary = tf.summary.image("fakeB", (self.fake_B+1.)/2.)
+        self.summary_images = tf.summary.merge(
+            [self.real_A_summary, self.fake_A_summary, self.real_B_summary, self.fake_B_summary]
+        )
 
         self.test_A = tf.placeholder(tf.float32,
                                      [None, self.image_size, self.image_size,
@@ -173,7 +180,7 @@ class cyclegan(object):
                     epoch, idx, batch_idxs, time.time() - start_time)))
 
                 if np.mod(counter, args.print_freq) == 1:
-                    self.sample_model(args.sample_dir, epoch, idx)
+                    self.sample_model(args.sample_dir, epoch, idx, counter)
 
                 if np.mod(counter, args.save_freq) == 2:
                     self.save(args.checkpoint_dir, counter)
@@ -204,7 +211,7 @@ class cyclegan(object):
         else:
             return False
 
-    def sample_model(self, sample_dir, epoch, idx):
+    def sample_model(self, sample_dir, epoch, idx, counter):
         dataA = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/testA'))
         dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/testB'))
         np.random.shuffle(dataA)
@@ -213,10 +220,11 @@ class cyclegan(object):
         sample_images = [load_train_data(batch_file, is_testing=True) for batch_file in batch_files]
         sample_images = np.array(sample_images).astype(np.float32)
 
-        fake_A, fake_B = self.sess.run(
-            [self.fake_A, self.fake_B],
+        fake_A, fake_B, summary_images = self.sess.run(
+            [self.fake_A, self.fake_B, self.summary_images],
             feed_dict={self.real_data: sample_images}
         )
+        self.writer.add_summary(summary_images, counter)
         save_images(fake_A, [self.batch_size, 1],
                     './{}/A_{:02d}_{:04d}.jpg'.format(sample_dir, epoch, idx))
         save_images(fake_B, [self.batch_size, 1],
