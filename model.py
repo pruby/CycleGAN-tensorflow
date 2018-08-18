@@ -38,7 +38,7 @@ class cyclegan(object):
                                       args.phase == 'train'))
 
         self._build_model()
-        self.saver = tf.train.Saver(keep_checkpoint_every_n_hours=2)
+        self.saver = tf.train.Saver()
         self.pool = ImagePool(args.max_size)
 
     def _build_model(self):
