@@ -42,7 +42,7 @@ def main(_):
     if not os.path.exists(args.test_dir):
         os.makedirs(args.test_dir)
 
-    tfconfig = tf.ConfigProto(allow_soft_placement=True)
+    tfconfig = tf.ConfigProto(log_device_placement=True)
     tfconfig.gpu_options.allow_growth = True
     with tf.Session(config=tfconfig) as sess:
         model = cyclegan(sess, args)
