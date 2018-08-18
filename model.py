@@ -9,6 +9,7 @@ from collections import namedtuple
 from module import *
 from utils import *
 
+D_LOSS_THRESHOLD = 0.2
 
 class cyclegan(object):
     def __init__(self, sess, args):
@@ -152,6 +153,7 @@ class cyclegan(object):
             np.random.shuffle(dataB)
             batch_idxs = min(min(len(dataA), len(dataB)), args.train_size) // self.batch_size
             lr = args.lr if epoch < args.epoch_step else args.lr*(args.epoch-epoch)/(args.epoch-args.epoch_step)
+            self.last_d_loss = 1
 
             for idx in range(0, batch_idxs):
                 batch_files = list(zip(dataA[idx * self.batch_size:(idx + 1) * self.batch_size],
@@ -167,12 +169,16 @@ class cyclegan(object):
                 [fake_A, fake_B] = self.pool([fake_A, fake_B])
 
                 # Update D network
-                _, summary_str = self.sess.run(
-                    [self.d_optim, self.d_sum],
-                    feed_dict={self.real_data: batch_images,
-                               self.fake_A_sample: fake_A,
-                               self.fake_B_sample: fake_B,
-                               self.lr: lr})
+                if self.last_d_loss >= D_LOSS_THRESHOLD:
+                    _, run_d_loss, summary_str = self.sess.run(
+                        [self.d_optim, self.d_loss, self.d_sum],
+                        feed_dict={self.real_data: batch_images,
+                                   self.fake_A_sample: fake_A,
+                                   self.fake_B_sample: fake_B,
+                                   self.lr: lr})
+                    self.last_d_loss = run_d_loss
+                else:
+                    self.last_d_loss *= 2
                 self.writer.add_summary(summary_str, counter)
 
                 counter += 1
