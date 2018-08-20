@@ -149,8 +149,12 @@ class cyclegan(object):
                 print(" [*] Load SUCCESS")
             else:
                 print(" [!] Load failed...")
+        dataA = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainA'))
+        dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainB'))
+        batch_idxs = min(min(len(dataA), len(dataB)), args.train_size) // self.batch_size
+        start_epoch = counter // batch_idxs
 
-        for epoch in range(args.epoch):
+        for epoch in range(start_epoch, args.epoch):
             dataA = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainA'))
             dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainB'))
             np.random.shuffle(dataA)
