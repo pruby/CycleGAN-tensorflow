@@ -23,10 +23,7 @@ class cyclegan(object):
 
         self.discriminator = discriminator
         self.generator = generator_unet
-        if args.use_lsgan:
-            self.criterionGAN = mae_criterion
-        else:
-            self.criterionGAN = sce_criterion
+        self.criterionGAN = sce_criterion
 
         OPTIONS = namedtuple('OPTIONS', 'batch_size image_size \
                               gf_dim df_dim output_c_dim is_training')

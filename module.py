@@ -1,5 +1,6 @@
 from __future__ import division
 import tensorflow as tf
+from ops import *
 from utils import *
 
 def centre_crop(image, width, height):
@@ -8,6 +9,7 @@ def centre_crop(image, width, height):
     return tf.image.crop_to_bounding_box(image, offset_x, offset_y, int(width), int(height))
 
 def discriminator(image, options, reuse=False, name="discriminator"):
+
     with tf.variable_scope(name):
         # image is 256 x 256 x input_c_dim
         if reuse:
@@ -15,21 +17,17 @@ def discriminator(image, options, reuse=False, name="discriminator"):
         else:
             assert tf.get_variable_scope().reuse is False
 
-        last = image
-        i = 0
-        dim = options.df_dim
-        while last.shape[1] > 16:
-            downscaled = tf.layers.conv2d(last, dim, (2, 2), 2, kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('d_h%d_conv' % (i,)))
-            last = tf.layers.conv2d(downscaled, dim, (2, 2), 1, kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('d_p%d_conv' % (i,)))
-            if options.is_training:
-                last = tf.layers.dropout(last, rate=0.5)
-            if i < 4:
-              dim = dim * 2
-            i += 1
-
-        flat = tf.layers.flatten(last)
-        result = tf.nn.tanh(tf.layers.dense(flat, 1))
-        return result
+        h0 = lrelu(conv2d(image, options.df_dim, name='d_h0_conv'))
+        # h0 is (128 x 128 x self.df_dim)
+        h1 = lrelu(instance_norm(conv2d(h0, options.df_dim*2, name='d_h1_conv'), 'd_bn1'))
+        # h1 is (64 x 64 x self.df_dim*2)
+        h2 = lrelu(instance_norm(conv2d(h1, options.df_dim*4, name='d_h2_conv'), 'd_bn2'))
+        # h2 is (32x 32 x self.df_dim*4)
+        h3 = lrelu(instance_norm(conv2d(h2, options.df_dim*8, s=1, name='d_h3_conv'), 'd_bn3'))
+        # h3 is (32 x 32 x self.df_dim*8)
+        h4 = conv2d(h3, 1, s=1, name='d_h3_pred')
+        # h4 is (32 x 32 x 1)
+        return h4
 
 
 def generator_unet(image, options, reuse=False, name="generator"):
@@ -45,6 +43,7 @@ def generator_unet(image, options, reuse=False, name="generator"):
         last = image
         dim = options.df_dim
         for i in range(4):
+            last = instance_norm(last, 'g_bn%d_d' % (i,))
             p1 = tf.layers.conv2d(last, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('g_l%d_p1_conv' % (i,)))
             print("Generator layer: " + str(p1.shape))
             p2 = tf.layers.conv2d(p1, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('g_l%d_p2_conv' % (i,)))
@@ -55,7 +54,7 @@ def generator_unet(image, options, reuse=False, name="generator"):
             last = downscale
             if options.is_training:
                 last = tf.layers.dropout(last, rate=0.5)
-            if i < 4:
+            if i < 3:
               dim = dim * 2
 
         b1 = tf.layers.conv2d(last, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name='g_b1')
@@ -67,6 +66,7 @@ def generator_unet(image, options, reuse=False, name="generator"):
         layers.reverse()
         i = len(layers)
         for layer in layers:
+            last = instance_norm(last, 'g_bn%d_u' % (i,))
             i -= 1 
             upscale = tf.layers.conv2d_transpose(last, dim, (2, 2), 2, kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=("g_l%d_up" % (i,)))
             width = int(upscale.shape[1])
