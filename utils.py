@@ -44,7 +44,8 @@ class ImagePool(object):
 
 def load_test_data(image_path, load_size=256):
     img = imread(image_path)
-    img = scipy.misc.imresize(img, [load_size, load_size])
+    if load_size:
+        img = scipy.misc.imresize(img, [load_size, load_size])
     img = img/127.5 - 1
     return img
 

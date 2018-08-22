@@ -133,6 +133,15 @@ class cyclegan(object):
         for var in tf.trainable_variables():
             print(var.name + ": " + str(var.shape))
 
+    def dynamic_transform(self, image, direction='AtoB'):
+        print("Image dimensions: %s" % (str(image.shape),))
+        generatorName = 'generatorA2B' if direction == 'AtoB' else 'generatorB2A'
+        inputTensor = tf.placeholder(tf.float32, image.shape)
+        print("Input tensor dimensions: %s" % (str(inputTensor.shape),))
+        outputTensor = self.generator(inputTensor, self.options, True, name=generatorName)
+        print("Output tensor dimensions: %s" % (str(outputTensor.shape),))
+        return (inputTensor, outputTensor)
+
     def random_tiles(self, image):
         tiles = []
         for i in range(self.batch_size):
@@ -279,15 +288,13 @@ class cyclegan(object):
         index.write("<html><body><table><tr>")
         index.write("<th>name</th><th>input</th><th>output</th></tr>")
 
-        out_var, in_var = (self.testB, self.test_A) if args.which_direction == 'AtoB' else (
-            self.testA, self.test_B)
-
         for sample_file in sample_files:
             print('Processing image: ' + sample_file)
-            sample_image = [load_test_data(sample_file, args.load_size)]
+            sample_image = [load_test_data(sample_file, None)]
             sample_image = np.array(sample_image).astype(np.float32)
             image_path = os.path.join(args.test_dir,
                                       '{0}_{1}'.format(args.which_direction, os.path.basename(sample_file)))
+            in_var, out_var = self.dynamic_transform(sample_image, args.which_direction)
             fake_img = self.sess.run(out_var, feed_dict={in_var: sample_image})
             save_images(fake_img, [1, 1], image_path)
             index.write("<td>%s</td>" % os.path.basename(image_path))
