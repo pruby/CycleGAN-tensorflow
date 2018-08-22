@@ -15,6 +15,7 @@ class cyclegan(object):
     def __init__(self, sess, args):
         self.sess = sess
         self.batch_size = args.batch_size
+        self.in_size = args.load_size
         self.image_size = args.fine_size
         self.input_c_dim = args.input_nc
         self.output_c_dim = args.output_nc
@@ -25,9 +26,9 @@ class cyclegan(object):
         self.generator = generator_unet
         self.criterionGAN = sce_criterion
 
-        OPTIONS = namedtuple('OPTIONS', 'batch_size image_size \
+        OPTIONS = namedtuple('OPTIONS', 'batch_size in_size image_size \
                               gf_dim df_dim output_c_dim is_training')
-        self.options = OPTIONS._make((args.batch_size, args.fine_size,
+        self.options = OPTIONS._make((args.batch_size, args.load_size, args.fine_size,
                                       args.ngf, args.ndf, args.output_nc,
                                       args.phase == 'train'))
 
@@ -37,12 +38,14 @@ class cyclegan(object):
 
     def _build_model(self):
         self.real_data = tf.placeholder(tf.float32,
-                                        [None, self.image_size, self.image_size,
+                                        [self.in_size, self.in_size,
                                          self.input_c_dim + self.output_c_dim],
                                         name='real_A_and_B_images')
+        with tf.device("/device:CPU:0"):
+            self.real_A = self.random_tiles(self.real_data[:, :, :self.input_c_dim])
+            self.real_B = self.random_tiles(self.real_data[:, :, self.input_c_dim:self.input_c_dim + self.output_c_dim])
 
         with tf.device("/device:GPU:1"):
-            self.real_A = self.real_data[:, :, :, :self.input_c_dim]
             self.fake_B = self.generator(self.real_A, self.options, False, name="generatorA2B")
             # With the true U-Net model we lose edge pixels with each transform.
             # As a result, the fakes are smaller than the reals, and after cycling
@@ -54,7 +57,6 @@ class cyclegan(object):
             self.cycled_height = int(self.fake_A_.shape[2])
 
         with tf.device("/device:GPU:2"):
-            self.real_B = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim + self.output_c_dim]
             self.fake_A = self.generator(self.real_B, self.options, True, name="generatorB2A")
             self.fake_B_ = self.generator(self.fake_A, self.options, True, name="generatorA2B")
 
@@ -108,28 +110,36 @@ class cyclegan(object):
                  self.db_loss_sum, self.db_loss_real_sum, self.db_loss_fake_sum,
                  self.d_loss_sum]
             )
-            self.real_A_summary = tf.summary.image("realA", (self.real_A+1.)/2.)
-            self.fake_A_summary = tf.summary.image("fakeA", (self.fake_A+1.)/2.)
-            self.real_B_summary = tf.summary.image("realB", (self.real_B+1.)/2.)
-            self.fake_B_summary = tf.summary.image("fakeB", (self.fake_B+1.)/2.)
-            self.summary_images = tf.summary.merge(
-                [self.real_A_summary, self.fake_A_summary, self.real_B_summary, self.fake_B_summary]
-            )
 
         self.test_A = tf.placeholder(tf.float32,
-                                     [None, self.image_size, self.image_size,
+                                     [self.in_size, self.in_size,
                                       self.input_c_dim], name='test_A')
         self.test_B = tf.placeholder(tf.float32,
-                                     [None, self.image_size, self.image_size,
+                                     [self.in_size, self.in_size,
                                       self.output_c_dim], name='test_B')
-        self.testB = self.generator(self.test_A, self.options, True, name="generatorA2B")
-        self.testA = self.generator(self.test_B, self.options, True, name="generatorB2A")
+        self.testB = self.generator(tf.expand_dims(self.test_A, 0), self.options, True, name="generatorA2B")
+        self.testA = self.generator(tf.expand_dims(self.test_B, 0), self.options, True, name="generatorB2A")
 
+        self.real_A_summary = tf.summary.image("realA", (tf.expand_dims(self.test_A, 0)+1.)/2.)
+        self.fake_A_summary = tf.summary.image("fakeA", (self.testA+1.)/2.)
+        self.real_B_summary = tf.summary.image("realB", (tf.expand_dims(self.test_B, 0)+1.)/2.)
+        self.fake_B_summary = tf.summary.image("fakeB", (self.testB+1.)/2.)
+        self.summary_images = tf.summary.merge(
+            [self.real_A_summary, self.fake_A_summary, self.real_B_summary, self.fake_B_summary]
+        )
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'discriminator' in var.name]
         self.g_vars = [var for var in t_vars if 'generator' in var.name]
         for var in tf.trainable_variables():
             print(var.name + ": " + str(var.shape))
+
+    def random_tiles(self, image):
+        tiles = []
+        for i in range(self.batch_size):
+            cropped = tf.random_crop(image, [self.image_size, self.image_size, image.shape[2]])
+            flipped = tf.image.random_flip_left_right(cropped)
+            tiles.append(flipped)
+        return tf.stack(tiles)
 
     def train(self, args):
         """Train cyclegan"""
@@ -154,7 +164,7 @@ class cyclegan(object):
                 print(" [!] Load failed...")
         dataA = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainA'))
         dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainB'))
-        batch_idxs = min(min(len(dataA), len(dataB)), args.train_size) // self.batch_size
+        batch_idxs = min(min(len(dataA), len(dataB)), args.train_size)
         start_epoch = counter // batch_idxs
 
         for epoch in range(start_epoch, args.epoch):
@@ -162,20 +172,19 @@ class cyclegan(object):
             dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainB'))
             np.random.shuffle(dataA)
             np.random.shuffle(dataB)
-            batch_idxs = min(min(len(dataA), len(dataB)), args.train_size) // self.batch_size
+            batch_idxs = min(min(len(dataA), len(dataB)), args.train_size)
             lr = args.lr if epoch < args.epoch_step else args.lr*(args.epoch-epoch)/(args.epoch-args.epoch_step)
             last_d_loss = 1
 
             for idx in range(0, batch_idxs):
-                batch_files = list(zip(dataA[idx * self.batch_size:(idx + 1) * self.batch_size],
-                                       dataB[idx * self.batch_size:(idx + 1) * self.batch_size]))
-                batch_images = [load_train_data(batch_file, args.load_size, args.fine_size) for batch_file in batch_files]
-                batch_images = np.array(batch_images).astype(np.float32)
+                batch_files = (dataA[idx], dataB[idx])
+                images = load_train_data(batch_files, args.load_size, args.fine_size)
+                images = np.array(images).astype(np.float32)
 
                 # Update G network and record fake outputs
                 fake_A, fake_B, _, summary_str = self.sess.run(
                     [self.fake_A, self.fake_B, self.g_optim, self.g_sum],
-                    feed_dict={self.real_data: batch_images, self.lr: lr})
+                    feed_dict={self.real_data: images, self.lr: lr})
                 self.writer.add_summary(summary_str, counter)
                 [fake_A, fake_B] = self.pool([fake_A, fake_B])
 
@@ -183,7 +192,7 @@ class cyclegan(object):
                 if last_d_loss >= D_LOSS_THRESHOLD:
                     _, run_d_loss, summary_str = self.sess.run(
                         [self.d_optim, self.d_loss, self.d_sum],
-                        feed_dict={self.real_data: batch_images,
+                        feed_dict={self.real_data: images,
                                    self.fake_A_sample: fake_A,
                                    self.fake_B_sample: fake_B,
                                    self.lr: lr})
@@ -234,13 +243,13 @@ class cyclegan(object):
         dataB = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/testB'))
         np.random.shuffle(dataA)
         np.random.shuffle(dataB)
-        batch_files = list(zip(dataA[:self.batch_size], dataB[:self.batch_size]))
-        sample_images = [load_train_data(batch_file, load_size, fine_size, is_testing=True) for batch_file in batch_files]
-        sample_images = np.array(sample_images).astype(np.float32)
+        sample_a = load_test_data(dataA[0], load_size)
+        sample_b = load_test_data(dataB[0], load_size)
+        #sample_images = np.array(sample_images).astype(np.float32)
 
         fake_A, fake_B, summary_images = self.sess.run(
-            [self.fake_A, self.fake_B, self.summary_images],
-            feed_dict={self.real_data: sample_images}
+            [self.testA, self.testB, self.summary_images],
+            feed_dict={self.test_A: sample_a, self.test_B: sample_b}
         )
         self.writer.add_summary(summary_images, counter)
         save_images(fake_A, [self.batch_size, 1],
@@ -275,7 +284,7 @@ class cyclegan(object):
 
         for sample_file in sample_files:
             print('Processing image: ' + sample_file)
-            sample_image = [load_test_data(sample_file, args.fine_size)]
+            sample_image = [load_test_data(sample_file, args.load_size)]
             sample_image = np.array(sample_image).astype(np.float32)
             image_path = os.path.join(args.test_dir,
                                       '{0}_{1}'.format(args.which_direction, os.path.basename(sample_file)))
