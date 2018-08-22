@@ -22,10 +22,7 @@ class cyclegan(object):
         self.dataset_dir = args.dataset_dir
 
         self.discriminator = discriminator
-        if args.use_resnet:
-            self.generator = generator_resnet
-        else:
-            self.generator = generator_unet
+        self.generator = generator_unet
         if args.use_lsgan:
             self.criterionGAN = mae_criterion
         else:
@@ -50,7 +47,14 @@ class cyclegan(object):
         with tf.device("/device:GPU:1"):
             self.real_A = self.real_data[:, :, :, :self.input_c_dim]
             self.fake_B = self.generator(self.real_A, self.options, False, name="generatorA2B")
+            # With the true U-Net model we lose edge pixels with each transform.
+            # As a result, the fakes are smaller than the reals, and after cycling
+            # back become smaller again.
+            self.fake_width = int(self.fake_B.shape[1])
+            self.fake_height = int(self.fake_B.shape[2])
             self.fake_A_ = self.generator(self.fake_B, self.options, False, name="generatorB2A")
+            self.cycled_width = int(self.fake_A_.shape[1])
+            self.cycled_height = int(self.fake_A_.shape[2])
 
         with tf.device("/device:GPU:2"):
             self.real_B = self.real_data[:, :, :, self.input_c_dim:self.input_c_dim + self.output_c_dim]
@@ -72,13 +76,14 @@ class cyclegan(object):
                 + self.L1_lambda * abs_criterion(self.real_B, self.fake_B_)
 
             self.fake_A_sample = tf.placeholder(tf.float32,
-                                                [None, self.image_size, self.image_size,
+                                                [None, self.fake_width, self.fake_height,
                                                  self.input_c_dim], name='fake_A_sample')
             self.fake_B_sample = tf.placeholder(tf.float32,
-                                                [None, self.image_size, self.image_size,
+                                                [None, self.fake_width, self.fake_height,
                                                  self.output_c_dim], name='fake_B_sample')
-            self.DB_real = self.discriminator(self.real_B, self.options, reuse=True, name="discriminatorB")
-            self.DA_real = self.discriminator(self.real_A, self.options, reuse=True, name="discriminatorA")
+            # Discriminator input size is fake_width x fake_height - crop reals
+            self.DB_real = self.discriminator(centre_crop(self.real_B, self.fake_width, self.fake_height), self.options, reuse=True, name="discriminatorB")
+            self.DA_real = self.discriminator(centre_crop(self.real_A, self.fake_width, self.fake_height), self.options, reuse=True, name="discriminatorA")
             self.DB_fake_sample = self.discriminator(self.fake_B_sample, self.options, reuse=True, name="discriminatorB")
             self.DA_fake_sample = self.discriminator(self.fake_A_sample, self.options, reuse=True, name="discriminatorA")
 
@@ -126,7 +131,8 @@ class cyclegan(object):
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'discriminator' in var.name]
         self.g_vars = [var for var in t_vars if 'generator' in var.name]
-        for var in t_vars: print(var.name)
+        for var in tf.trainable_variables():
+            print(var.name + ": " + str(var.shape))
 
     def train(self, args):
         """Train cyclegan"""
