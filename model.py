@@ -9,7 +9,7 @@ from collections import namedtuple
 from module import *
 from utils import *
 
-D_LOSS_THRESHOLD = 0.2
+D_LOSS_THRESHOLD = 0.3
 
 class cyclegan(object):
     def __init__(self, sess, args):

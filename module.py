@@ -32,6 +32,7 @@ def discriminator(image, options, reuse=False, name="discriminator"):
 
 def generator_unet(image, options, reuse=False, name="generator"):
     print("Generator %s" % (name,))
+    initializer = tf.truncated_normal_initializer(stddev=0.02)
     dropout_rate = 0.5 if options.is_training else 1.0
     with tf.variable_scope(name):
         # image is 256 x 256 x input_c_dim
@@ -44,9 +45,9 @@ def generator_unet(image, options, reuse=False, name="generator"):
         dim = options.df_dim
         for i in range(4):
             last = instance_norm(last, 'g_bn%d_d' % (i,))
-            p1 = tf.layers.conv2d(last, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('g_l%d_p1_conv' % (i,)))
+            p1 = tf.layers.conv2d(last, dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.leaky_relu, name=('g_l%d_p1_conv' % (i,)))
             print("Generator layer: " + str(p1.shape))
-            p2 = tf.layers.conv2d(p1, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('g_l%d_p2_conv' % (i,)))
+            p2 = tf.layers.conv2d(p1, dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.leaky_relu, name=('g_l%d_p2_conv' % (i,)))
             print("Generator layer: " + str(p2.shape))
             layers.append(p2)
             downscale = tf.layers.max_pooling2d(p2, (2, 2), 2, name=('g_l%d_downscale' % (i,)))
@@ -57,9 +58,9 @@ def generator_unet(image, options, reuse=False, name="generator"):
             if i < 3:
               dim = dim * 2
 
-        b1 = tf.layers.conv2d(last, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name='g_b1')
+        b1 = tf.layers.conv2d(last, dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.leaky_relu, name='g_b1')
         print("Generator layer: " + str(b1.shape))
-        b2 = tf.layers.conv2d(b1, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name='g_b2')
+        b2 = tf.layers.conv2d(b1, dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.leaky_relu, name='g_b2')
         print("Generator layer: " + str(b2.shape))
         last = b2
 
@@ -68,22 +69,22 @@ def generator_unet(image, options, reuse=False, name="generator"):
         for layer in layers:
             last = instance_norm(last, 'g_bn%d_u' % (i,))
             i -= 1 
-            upscale = tf.layers.conv2d_transpose(last, dim, (2, 2), 2, kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=("g_l%d_up" % (i,)))
+            upscale = tf.layers.conv2d_transpose(last, dim, (2, 2), 2, kernel_initializer=initializer, activation=tf.nn.leaky_relu, name=("g_l%d_up" % (i,)))
             width = int(upscale.shape[1])
             height = int(upscale.shape[2])
             dim = layer.shape[3]
             center = centre_crop(layer, width, height)
             combined = tf.concat([upscale, center], -1)
             print("Generator layer: " + str(combined.shape))
-            p3 = tf.layers.conv2d(combined, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('g_l%d_p3_conv' % (i,)))
+            p3 = tf.layers.conv2d(combined, dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.leaky_relu, name=('g_l%d_p3_conv' % (i,)))
             print("Generator layer: " + str(p3.shape))
-            p4 = tf.layers.conv2d(p3, dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.leaky_relu, name=('g_l%d_p4_conv' % (i,)))
+            p4 = tf.layers.conv2d(p3, dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.leaky_relu, name=('g_l%d_p4_conv' % (i,)))
             print("Generator layer: " + str(p4.shape))
             last = p4
             if options.is_training:
                 last = tf.layers.dropout(last, rate=0.5)
 
-        final = tf.layers.conv2d(last, options.output_c_dim, (3, 3), kernel_initializer=tf.initializers.random_normal, activation=tf.nn.tanh, name="g_final_projection")
+        final = tf.layers.conv2d(last, options.output_c_dim, (3, 3), kernel_initializer=initializer, activation=tf.nn.tanh, name="g_final_projection")
 
         return final
 
